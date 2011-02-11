@@ -342,15 +342,29 @@ endfunction
 
 
 function! ref#system(args, ...)  " {{{2
-  let args = ref#to_list(a:args)
+  let l:command = a:args
+  let l:input = a:0 >= 1 ? a:1 : ''
+  if &termencoding != '' && &termencoding != &encoding
+    let l:command = iconv(l:command, &encoding, &termencoding)
+    let l:input = iconv(l:input, &encoding, &termencoding)
+  endif
+  let args = ref#to_list(l:command)
   if g:ref_use_vimproc
     try
-      let stdout = a:0 ? vimproc#system(args, a:1) : vimproc#system(args)
-      return {
-      \ 'result': vimproc#get_last_status(),
-      \ 'stdout': stdout,
-      \ 'stderr': vimproc#get_last_errmsg(),
-      \ }
+      let l:stdout = a:0 ? vimproc#system(args, l:input) : vimproc#system(args)
+      if &termencoding != '' && &termencoding != &encoding
+        return {
+        \ 'result': iconv(vimproc#get_last_status(), &termencoding, &encoding),
+        \ 'stdout': iconv(l:stdout, &termencoding, &encoding),
+        \ 'stderr': iconv(vimproc#get_last_errmsg(), &termencoding, &encoding),
+        \ }
+      else
+        return {
+        \ 'result': vimproc#get_last_status(),
+        \ 'stdout': stdout,
+        \ 'stderr': vimproc#get_last_errmsg(),
+        \ }
+      endif
     catch
     endtry
   endif

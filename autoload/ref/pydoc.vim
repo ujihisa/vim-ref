@@ -27,7 +27,7 @@ function! s:source.get_body(query)
   if a:query != ''
     let content = ref#system(ref#to_list(g:ref_pydoc_cmd, a:query)).stdout
     if content !~# '^no Python documentation found'
-      return content
+      return substitute(content, '\s*$', '', '')
     endif
   endif
 

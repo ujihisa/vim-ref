@@ -7,7 +7,12 @@
 let s:save_cpo = &cpo
 set cpo&vim
 
+"let s:V = vital#of('ref')
+let s:V = vital#of('vital')
+let s:P = s:V.import('ProcessManager')
+
 " options. {{{1
+let g:ref_clojure_use_persistent = get(g:, 'ref_clojure_use_persistent', 0)
 if !exists('g:ref_clojure_cmd')  " {{{2
   let g:ref_clojure_cmd =
         \ executable('clj') ? 'clj' :
@@ -31,6 +36,10 @@ function! s:source.available()
 endfunction
 
 function! s:source.get_body(query)
+  return s:get_body(a:query, g:ref_clojure_overview)
+endfunction
+
+function! s:get_body(query, is_overview)
   let query = a:query
   let classpath = $CLASSPATH
   let $CLASSPATH = s:classpath()
@@ -48,8 +57,8 @@ function! s:source.get_body(query)
     endif
     let res = s:clj(printf('%s(find-doc "%s")', pre, escape(query, '"')))
     if res.stdout != ''
-      return g:ref_clojure_overview ? s:to_overview(res.stdout)
-      \                             : res.stdout
+      return a:is_overview ? s:to_overview(res.stdout)
+      \                    : res.stdout
     endif
   finally
     let $CLASSPATH = classpath
@@ -73,10 +82,42 @@ function! s:source.get_keyword()
   return keyword
 endfunction
 
+function! s:source.complete(query)
+  let candidates = []
+  for line in s:get_body('#""', 1)
+    call add(candidates, substitute(line, ' .*', '', ''))
+  endfor
+  return candidates
+endfunction
+
 
 " functions. {{{1
 function! s:clj(code)
-  return ref#system(ref#to_list(g:ref_clojure_cmd, '-'), a:code)
+  if !g:ref_clojure_use_persistent
+    return ref#system(ref#to_list(g:ref_clojure_cmd, '-'), a:code)
+  endif
+
+  if !s:P.is_available()
+    throw 'g:ref_clojure_use_persistent is set, but vimproc is not there.'
+  endif
+
+  let p = s:P.of('ref-clojure',
+        \ printf('%s -e "(clojure.main/repl :prompt #(print \"\nref-clojure/pm=> \"))"', g:ref_clojure_cmd))
+  if p.is_new()
+    call p.reserve_wait(['ref-clojure/pm=> '])
+  endif
+  call p.reserve_writeln(printf('(do %s "dummy return value")', a:code))
+        \.reserve_read(['ref-clojure/pm=> '])
+  while 1 " blocking!
+    let result = p.go_bulk()
+    if result.done
+      return {'stdout': substitute(result.out, '"dummy return value"', '', ''), 'stderr': result.err}
+    elseif result.fail
+      echomsg 'The process is inactive. Restarting...'
+      call p.shutdown()
+      return s:clj(a:code)
+    endif
+  endwhile
 endfunction
 
 function! s:to_overview(body)
